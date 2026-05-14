@@ -24,6 +24,7 @@ type MenuItem = {
   price: number;
   description?: string;
   image: string;
+  stock?: number;
 };
 
 const THEME = {
@@ -147,8 +148,15 @@ export default function MenuScreen() {
     [menu]
   );
 
-  const add = (id: string) =>
-    setCart((p) => ({ ...p, [id]: (p[id] || 0) + 1 }));
+  const add = (id: string) => {
+    setCart((p) => {
+      const item = menu.find((m) => m.id === id);
+      const maxStock = item?.stock !== undefined ? Number(item.stock) : Infinity;
+      const current = p[id] || 0;
+      if (current >= maxStock) return p;
+      return { ...p, [id]: current + 1 };
+    });
+  };
 
   const remove = (id: string) =>
     setCart((p) => {
@@ -207,7 +215,14 @@ export default function MenuScreen() {
         ]}
         renderItem={({ item }) => (
           <View style={styles.card}>
-            <Image source={{ uri: item.image }} style={styles.image} />
+            <View style={{ position: 'relative' }}>
+              <Image source={{ uri: item.image }} style={styles.image} />
+              {item.stock === 0 && (
+                <View style={styles.soldOutBadge}>
+                  <Text style={styles.soldOutText}>Sold Out</Text>
+                </View>
+              )}
+            </View>
 
             <View style={styles.info}>
               <Text style={styles.name}>{item.name}</Text>
@@ -220,7 +235,11 @@ export default function MenuScreen() {
             </View>
 
             <View style={styles.counter}>
-              {cart[item.id] ? (
+              {item.stock === 0 ? (
+                <View style={styles.soldOutButton}>
+                  <Text style={styles.soldOutButtonText}>Sold Out</Text>
+                </View>
+              ) : cart[item.id] ? (
                 <View style={styles.stepper}>
                   <TouchableOpacity
                     style={styles.stepperButton}
@@ -331,6 +350,20 @@ const styles = StyleSheet.create({
     height: 140,
     borderRadius: 10,
   },
+  soldOutBadge: {
+    position: 'absolute',
+    top: 8,
+    left: 8,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  soldOutText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: '700',
+  },
   info: {
     marginTop: 8,
   },
@@ -354,16 +387,23 @@ const styles = StyleSheet.create({
   stepper: {
     flexDirection: 'row',
     alignItems: 'center',
+    backgroundColor: '#f5f5f5',
+    borderRadius: 8,
+    padding: 2,
   },
   stepperButton: {
     padding: 6,
     backgroundColor: '#eee',
     borderRadius: 6,
+    minWidth: 28,
+    alignItems: 'center',
   },
   stepperButtonPrimary: {
     padding: 6,
     backgroundColor: THEME.primary,
     borderRadius: 6,
+    minWidth: 28,
+    alignItems: 'center',
   },
   stepperButtonTextDark: {
     color: '#000',
@@ -380,8 +420,25 @@ const styles = StyleSheet.create({
   addCircleText: {
     color: THEME.primary,
   },
+  soldOutButton: {
+    borderWidth: 1,
+    borderColor: '#ccc',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    backgroundColor: '#f5f5f5',
+  },
+  soldOutButtonText: {
+    color: '#999',
+    fontWeight: '600',
+    fontSize: 12,
+  },
   qty: {
     marginHorizontal: 8,
+    minWidth: 24,
+    textAlign: 'center',
+    fontWeight: '700',
+    fontSize: 15,
   },
   cartBar: {
     position: 'absolute',

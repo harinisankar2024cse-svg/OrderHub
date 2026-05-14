@@ -11,9 +11,10 @@ import {
 import { getAuth } from 'firebase/auth';
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { collection, addDoc, doc, getDoc, runTransaction } from 'firebase/firestore';
+import { collection, addDoc, serverTimestamp, doc, getDoc, getDocs, query, where, updateDoc } from 'firebase/firestore';
 import { db } from '../../firebase/firebaseConfig';
 import { COLORS } from '../../utils/colors';
+import { generateShopToken } from '../../utils/generateShopToken';
 
 // ─── Shop ID map (match your Firestore shop document IDs) ────────────────────
 const SHOP_IDS: Record<string, string> = {
@@ -125,21 +126,9 @@ export default function CheckoutScreen() {
       }
 
       const shopId = SHOP_IDS[shop] ?? shop.toLowerCase().replace(/\s+/g, '_');
-      const shopRef = doc(db, 'shops', shopId);
-
-      const shopSnap = await getDoc(shopRef);
-      const isQueueActive = shopSnap.data()?.isQueueActive === true;
-
-      // Atomic token increment
-      // ✅ Fixed code
-      const tokenNumber = isQueueActive
-        ? await runTransaction(db, async (tx) => {
-          const shopSnap = await tx.get(shopRef);
-          const next = (shopSnap.data()?.tokenCounter ?? 0) + 1;
-          tx.set(shopRef, { tokenCounter: next }, { merge: true }); // ← creates if not exists
-          return next;
-        })
-        : null;
+      const shopSnap = await getDoc(doc(db, 'shops', shopId));
+      const isQueueActive = shopSnap.data()?.isQueueActive ?? false;
+      const tokenNumber = isQueueActive ? await generateShopToken(shopId) : null;
       // Save order
       const orderRef = await addDoc(collection(db, 'orders'), {
         userId,
@@ -156,11 +145,34 @@ export default function CheckoutScreen() {
         total,
         paymentMethod,
         tokenNumber,
-        isQueueActive,
-        status: 'waiting',
+        isTokenAssigned: isQueueActive,
+        status: 'pending',
         qrScanned: false,
-        createdAt: new Date().toISOString(),
+        createdAt: serverTimestamp(),
       });
+
+      // Deduct stock for each ordered item
+      await Promise.all(
+        cartItems.map(async (item) => {
+          try {
+            const menuQuery = query(
+              collection(db, 'shops', shopId, 'menu'),
+              where('name', '==', item.name)
+            );
+            const menuSnap = await getDocs(menuQuery);
+            if (!menuSnap.empty) {
+              const menuDoc = menuSnap.docs[0];
+              const currentStock = Number(menuDoc.data().stock ?? 0);
+              const newStock = Math.max(0, currentStock - item.qty);
+              await updateDoc(doc(db, 'shops', shopId, 'menu', menuDoc.id), {
+                stock: newStock,
+              });
+            }
+          } catch (e) {
+            // silently fail — don't block order if stock update fails
+          }
+        })
+      );
 
       await AsyncStorage.removeItem(getCartKey(shopId));
 

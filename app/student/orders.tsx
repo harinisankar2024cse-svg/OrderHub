@@ -28,14 +28,12 @@ export default function StudentOrders() {
       setRefreshing(false)
       return
     }
+
     if (isRefresh) setRefreshing(true)
     else setLoading(true)
-    try {
-      const q = query(
-        collection(db, 'orders'),
-        where('userId', '==', uid)
-      )
 
+    try {
+      const q = query(collection(db, 'orders'), where('userId', '==', uid))
       const snap = await getDocs(q)
 
       const data = snap.docs
@@ -95,9 +93,7 @@ export default function StudentOrders() {
             colors={['#7C5CFF']}
           />
         }
-        ListEmptyComponent={
-          <Text style={styles.emptyText}>No orders yet</Text>
-        }
+        ListEmptyComponent={<Text style={styles.emptyText}>No orders yet</Text>}
         renderItem={({ item }) => (
           <TouchableOpacity
             style={styles.card}
@@ -117,12 +113,14 @@ export default function StudentOrders() {
                   item.status === 'completed' ? styles.statusCompleted : styles.statusPending,
                 ]}
               >
-                {(item.status ?? 'waiting').toUpperCase()}
+                {(item.status ?? 'pending').toUpperCase()}
               </Text>
             </View>
 
             <Text style={styles.items}>
-              {(item.items ?? []).map((i: any) => `${i.qty}x ${i.name}`).join(', ') || 'No items'}
+              {(item.items ?? [])
+                .map((i: any) => `${i.qty}x ${i.name}`)
+                .join(', ') || 'No items'}
             </Text>
 
             <View style={styles.row}>
@@ -195,10 +193,12 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     overflow: 'hidden',
   },
+
   statusCompleted: {
     color: '#166534',
     backgroundColor: '#DCFCE7',
   },
+
   statusPending: {
     color: '#B45309',
     backgroundColor: '#FEF3C7',
@@ -210,10 +210,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
   },
+
   total: {
     fontWeight: '700',
     color: '#7C5CFF',
   },
+
   date: {
     color: '#999',
     fontSize: 12,

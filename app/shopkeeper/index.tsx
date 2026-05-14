@@ -13,13 +13,10 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import {
   collection,
   doc,
-  getDoc,
   getDocs,
-  limit,
-  orderBy,
+  getDoc,
   query,
   serverTimestamp,
-  updateDoc,
   where,
   writeBatch,
 } from 'firebase/firestore';
@@ -50,52 +47,6 @@ export default function ShopkeeperHome() {
     init();
   }, []);
 
-  const notifyStudent = async (orderId: string) => {
-    const orderSnap = await getDoc(doc(db, 'orders', orderId));
-    if (!orderSnap.exists()) return;
-    const order: any = orderSnap.data();
-    if (!order?.userId) return;
-
-    const userSnap = await getDoc(doc(db, 'users', order.userId));
-    const pushToken = userSnap.data()?.expoPushToken;
-    if (!pushToken) return;
-
-    await fetch('https://exp.host/--/api/v2/push/send', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        to: pushToken,
-        title: 'Your order is ready!',
-        body: `Token #${String(order.tokenNumber ?? 0).padStart(4, '0')} is ready for pickup.`,
-        sound: 'default',
-        priority: 'high',
-      }),
-    });
-  };
-
-  async function markAsReady() {
-    if (!orderData) return;
-    try {
-      await updateDoc(doc(db, 'orders', orderData.orderId), {
-        status: 'completed',
-        completedAt: serverTimestamp(),
-      });
-
-      Alert.alert(
-        'Done! ✓',
-        `Token #${String(orderData.tokenNumber).padStart(4, '0')} marked completed.`,
-        [{
-          text: 'Scan Next', onPress: () => {
-            setOrderData(null);
-            setScanned(false);
-          },
-        }]
-      );
-    } catch (err: any) {
-      Alert.alert('Error', err.message);
-    }
-  }
-
   async function handleScan({ data }: { data: string }) {
     if (scanned || scanning) return;
     setScanned(true);
@@ -115,44 +66,44 @@ export default function ShopkeeperHome() {
         setScanned(false);
         return;
       }
+      if (orderDoc.status === 'completed' || orderDoc.qrScanned === true) {
+        throw new Error('Order already scanned');
+      }
 
       const currentOrderRef = doc(db, 'orders', orderId);
-      const ordersRef = collection(db, 'orders');
-      const batch = writeBatch(db);
-
-      // 1. Complete current order
-      batch.update(currentOrderRef, {
-        status: 'completed',
-        completedAt: serverTimestamp(),
-      });
-
-      // 2. Find next waiting order (FIFO)
-      const nextSnap = await getDocs(
+      const shopRef = doc(db, 'shops', orderDoc.shopId);
+      const pendingSnap = await getDocs(
         query(
-          ordersRef,
-          where('shopId', '==', orderDoc.shopId),
-          where('status', '==', 'waiting'),
-          orderBy('createdAt', 'asc'),
-          limit(1)
+          collection(db, 'orders'),
+          where('shopId', '==', orderDoc.shopId)
         )
       );
 
-      if (!nextSnap.empty) {
-        const nextRef = nextSnap.docs[0].ref;
-        const nextData: any = nextSnap.docs[0].data();
-        batch.update(nextRef, {
-          status: 'ready',
-          activeToken: nextData.tokenNumber ?? null,
-          readyAt: serverTimestamp(),
-        });
-      }
+      const remainingTokens = pendingSnap.docs
+        .map((d) => d.data())
+        .filter(
+          (d) =>
+            d.status !== 'completed' && d.tokenNumber !== orderDoc.tokenNumber
+        )
+        .map((d) => d.tokenNumber as number)
+        .sort((a, b) => a - b);
+
+      const shopSnap = await getDoc(doc(db, 'shops', orderDoc.shopId));
+      const currentActive = shopSnap.data()?.activeToken ?? 0;
+      const nextToken =
+        remainingTokens.length > 0 ? remainingTokens[0] : currentActive + 1;
+
+      const batch = writeBatch(db);
+      batch.update(currentOrderRef, {
+        status: 'completed',
+        qrScanned: true,
+        completedAt: serverTimestamp(),
+      });
+      batch.update(shopRef, {
+        activeToken: nextToken,
+      });
 
       await batch.commit();
-
-      // 3. Notify next student (after batch succeeds)
-      if (!nextSnap.empty) {
-        await notifyStudent(nextSnap.docs[0].id);
-      }
 
       setOrderData(orderDoc);
     } catch (err: any) {
@@ -269,10 +220,6 @@ export default function ShopkeeperHome() {
             <Text style={styles.totalValue}>₹{orderData.total}</Text>
           </View>
         </View>
-
-        <TouchableOpacity style={styles.primaryButton} onPress={markAsReady}>
-          <Text style={styles.primaryButtonText}>Mark as Ready & Next</Text>
-        </TouchableOpacity>
 
         <TouchableOpacity
           style={styles.secondaryButton}

@@ -60,6 +60,7 @@ export default function ShopkeeperOrdersScreen() {
   const [shopId, setShopId] = useState('')
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
+  const [readyingOrderId, setReadyingOrderId] = useState<string | null>(null)
 
   const uid = getAuth().currentUser?.uid
 
@@ -125,6 +126,20 @@ export default function ShopkeeperOrdersScreen() {
 
   const visibleOrders =
     activeTab === 'pending' ? pendingOrders : completedOrders
+
+  const markAsReady = async (orderId: string) => {
+    setReadyingOrderId(orderId)
+
+    try {
+      await updateDoc(doc(db, 'orders', orderId), {
+        status: 'ready',
+      })
+    } catch (err: any) {
+      Alert.alert('Error', err.message)
+    } finally {
+      setReadyingOrderId((current) => (current === orderId ? null : current))
+    }
+  }
 
   // 🚀 SKIP = MOVE TO BOTTOM (UPDATED createdAt)
   const skipOrder = async (order: OrderRecord) => {
@@ -200,11 +215,18 @@ export default function ShopkeeperOrdersScreen() {
 
               <Text
                 style={{
-                  color: item.status === 'completed' ? '#22C55E' : '#B45309',
+                  color:
+                    item.status === 'completed' || item.status === 'ready'
+                      ? '#22C55E'
+                      : '#B45309',
                   fontWeight: '600',
                 }}
               >
-                {item.status === 'completed' ? 'COMPLETED' : 'PENDING'}
+                {item.status === 'completed'
+                  ? 'COMPLETED'
+                  : item.status === 'ready'
+                  ? 'READY'
+                  : 'PENDING'}
               </Text>
             </View>
 
@@ -226,6 +248,29 @@ export default function ShopkeeperOrdersScreen() {
 
             {activeTab === 'pending' && (
               <View style={styles.actions}>
+                <TouchableOpacity
+                  style={[
+                    styles.readyButton,
+                    item.status === 'ready' && styles.readyButtonDisabled,
+                    readyingOrderId === item.id && styles.readyButtonDisabled,
+                  ]}
+                  onPress={() => markAsReady(item.id)}
+                  disabled={item.status === 'ready' || readyingOrderId === item.id}
+                >
+                  <Text
+                    style={[
+                      styles.readyText,
+                      item.status === 'ready' && styles.readyTextDisabled,
+                    ]}
+                  >
+                    {item.status === 'ready'
+                      ? 'READY \u2714'
+                      : readyingOrderId === item.id
+                      ? 'Marking...'
+                      : 'Mark as Ready'}
+                  </Text>
+                </TouchableOpacity>
+
                 <TouchableOpacity
                   style={styles.skipButton}
                   onPress={() => skipOrder(item)}
@@ -278,6 +323,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 12,
     marginBottom: 10,
+    backgroundColor: '#FFFFFF',
   },
 
   cardTop: {
@@ -295,7 +341,27 @@ const styles = StyleSheet.create({
     marginTop: 5,
   },
 
-  actions: { marginTop: 10 },
+  actions: { marginTop: 10, gap: 10 },
+
+  readyButton: {
+    backgroundColor: '#7C5CFF',
+    padding: 10,
+    borderRadius: 8,
+    alignItems: 'center',
+  },
+
+  readyButtonDisabled: {
+    backgroundColor: '#DCFCE7',
+  },
+
+  readyText: {
+    color: '#FFFFFF',
+    fontWeight: '600',
+  },
+
+  readyTextDisabled: {
+    color: '#166534',
+  },
 
   skipButton: {
     borderWidth: 1,
